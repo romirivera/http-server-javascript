@@ -9,6 +9,18 @@ const server = net.createServer((socket) => {
     // Lógica para responder según el path
     if (method === 'GET' && path === '/') {
       socket.write('HTTP/1.1 200 OK\r\n\r\n');
+    } else if (method === 'GET' && path.startsWith('/echo/')) {
+      const str = path.slice(6); // Extrae lo que viene después de "/echo/"
+      const contentLength = Buffer.byteLength(str); // Longitud en bytes
+
+      const response =
+        `HTTP/1.1 200 OK\r\n` +
+        `Content-Type: text/plain\r\n` +
+        `Content-Length: ${contentLength}\r\n` +
+        `\r\n` +
+        `${str}`;
+
+      socket.write(response);
     } else {
       socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
     }
