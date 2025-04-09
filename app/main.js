@@ -89,3 +89,5 @@ const server = net.createServer((socket) => {
 server.listen(4221, 'localhost', () => {
   console.log('Servidor escuchando en http://localhost:4221');
 });
+
+// correr el servidor: ./your_program.sh --directory /tmp/
