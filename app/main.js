@@ -7,16 +7,32 @@ const directoryIndex = process.argv.indexOf('--directory');
 const baseDirectory = directoryIndex !== -1 ? process.argv[directoryIndex + 1] : null;
 
 const server = net.createServer((socket) => {
-  socket.on('data', (data) => {
-    const request = data.toString();
-    const [requestLine, ...headerLines] = request.split('\r\n');
-    const [method, requestPath] = requestLine.split(' ');
+  let requestData = '';
 
-    // Obtener User-Agent si existe
-    const userAgentLine = headerLines.find((line) =>
-      line.toLowerCase().startsWith('user-agent:')
-    );
-    const userAgent = userAgentLine ? userAgentLine.split(': ')[1] : '';
+  socket.on('data', (chunk) => {
+    requestData += chunk.toString();
+
+    const headersEndIndex = requestData.indexOf('\r\n\r\n');
+    if (headersEndIndex === -1) return; // Aún no llegan todos los headers
+
+    const headerPart = requestData.slice(0, headersEndIndex);
+    const [requestLine, ...headerLines] = headerPart.split('\r\n');
+    const [method, requestPath] = requestLine.split(' ');
+    const headers = {};
+
+    headerLines.forEach((line) => {
+      const [key, value] = line.split(': ');
+      headers[key.toLowerCase()] = value;
+    });
+
+    const contentLength = parseInt(headers['content-length'] || 0);
+    const body = requestData.slice(headersEndIndex + 4);
+
+    // Esperar a que llegue el body completo si aún no está
+    if (body.length < contentLength) return;
+
+    // Obtener User-Agent
+    const userAgent = headers['user-agent'] || '';
 
     // Ruta "/"
     if (method === 'GET' && requestPath === '/') {
@@ -55,7 +71,7 @@ const server = net.createServer((socket) => {
       return;
     }
 
-    // Ruta "/files/{filename}"
+    // Ruta "/files/{filename}" GET
     if (method === 'GET' && requestPath.startsWith('/files/')) {
       const filename = requestPath.replace('/files/', '');
       const filepath = path.join(baseDirectory, filename);
@@ -76,7 +92,23 @@ const server = net.createServer((socket) => {
       return;
     }
 
-    // Si no se reconoció la ruta
+    // Ruta "/files/{filename}" POST
+    if (method === 'POST' && requestPath.startsWith('/files/')) {
+      const filename = requestPath.replace('/files/', '');
+      const filepath = path.join(baseDirectory, filename);
+
+      fs.writeFile(filepath, body.slice(0, contentLength), (err) => {
+        if (err) {
+          socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+        } else {
+          socket.write('HTTP/1.1 201 Created\r\n\r\n');
+        }
+        socket.end();
+      });
+      return;
+    }
+
+    // Si no se reconoce la ruta
     socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
     socket.end();
   });
