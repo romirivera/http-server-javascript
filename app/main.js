@@ -22,7 +22,7 @@ const server = net.createServer((socket) => {
       const response =
         `HTTP/1.1 200 OK\r\n` +
         `Content-Type: text/plain\r\n` +
-        `Content-Length: ${length}\r\n\r\n` +
+        `Content-Length: ${contentLength}\r\n\r\n` +
         `${str}`;
       socket.write(response);
     } else if (method === 'GET' && path === '/user-agent') {
