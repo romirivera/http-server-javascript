@@ -45,35 +45,40 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Ruta: POST /files/{filename}
-  if (method === 'POST' && path.startsWith('/files/')) {
-    const filename = path.slice('/files/'.length);
-    // Sanitiza el nombre del archivo para evitar posibles problemas de directorios maliciosos
-    const sanitizedFilename = pathModule.basename(filename);
-    const filePath = pathModule.join(baseDirectory, sanitizedFilename);
+  // Ruta "/files/{filename}" GET
+  if (method === 'GET' && requestPath.startsWith('/files/')) {
+    const filename = requestPath.replace('/files/', '');
+    const filepath = path.join(baseDirectory, filename);
 
-    let bodyChunks = [];
-    req.on('data', (chunk) => {
-      console.log('Recibiendo datos...', chunk);
-      bodyChunks.push(chunk);
+    fs.readFile(filepath, (err, content) => {
+      if (err) {
+        socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+      } else {
+        socket.write(
+          `HTTP/1.1 200 OK\r\n` +
+            `Content-Type: application/octet-stream\r\n` +
+            `Content-Length: ${content.length}\r\n\r\n` +
+            content
+        );
+      }
+      socket.end();
     });
+    return;
+  }
 
-    req.on('end', () => {
-      const body = Buffer.concat(bodyChunks);
-      console.log('Archivo completo recibido', body.length);
+  // Ruta "/files/{filename}" POST
+  if (method === 'POST' && requestPath.startsWith('/files/')) {
+    const filename = requestPath.replace('/files/', '');
+    const filepath = path.join(baseDirectory, filename);
 
-      // Guarda el archivo recibido en el directorio base
-      fs.writeFile(filePath, body, (err) => {
-        if (err) {
-          res.writeHead(500);
-          res.end('Internal Server Error');
-          return;
-        }
-        res.writeHead(201); // Created
-        res.end();
-      });
+    fs.writeFile(filepath, body.slice(0, contentLength), (err) => {
+      if (err) {
+        socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+      } else {
+        socket.write('HTTP/1.1 201 Created\r\n\r\n');
+      }
+      socket.end();
     });
-
     return;
   }
 
