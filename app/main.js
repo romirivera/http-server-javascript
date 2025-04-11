@@ -1,92 +1,144 @@
-const http = require('http');
-const zlib = require('zlib');
+const net = require('net');
 const fs = require('fs');
-const pathModule = require('path');
+const path = require('path');
 
-// Obtener directorio base desde los argumentos del programa
-const directoryArgIndex = process.argv.indexOf('--directory');
-const baseDirectory =
-  directoryArgIndex !== -1 ? process.argv[directoryArgIndex + 1] : '.';
+// Leer el directorio desde los argumentos
+const directoryIndex = process.argv.indexOf('--directory');
+const baseDirectory = directoryIndex !== -1 ? process.argv[directoryIndex + 1] : null;
 
-// Verifica si el directorio existe, y si no, crea uno nuevo.
-if (!fs.existsSync(baseDirectory)) {
-  fs.mkdirSync(baseDirectory, { recursive: true });
-}
+const server = net.createServer((socket) => {
+  let requestData = '';
 
-const server = http.createServer((req, res) => {
-  const method = req.method;
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const path = url.pathname;
-  const acceptEncoding = req.headers['accept-encoding'] || '';
+  socket.on('data', (chunk) => {
+    requestData += chunk.toString();
 
-  // Ruta: GET /echo/{mensaje}
-  if (method === 'GET' && path.startsWith('/echo/')) {
-    const message = decodeURIComponent(path.slice(6)); // quita "/echo/"
-    const body = Buffer.from(message, 'utf-8');
+    const headersEndIndex = requestData.indexOf('\r\n\r\n');
+    if (headersEndIndex === -1) return; // Aún no llegan todos los headers
 
-    // Analizar si cliente acepta gzip
-    const supportsGzip = acceptEncoding
-      .split(',')
-      .map((e) => e.trim())
-      .includes('gzip');
+    const headerPart = requestData.slice(0, headersEndIndex);
+    const [requestLine, ...headerLines] = headerPart.split('\r\n');
+    const [method, requestPath] = requestLine.split(' ');
+    const headers = {};
 
-    res.setHeader('Content-Type', 'text/plain');
+    headerLines.forEach((line) => {
+      const [key, value] = line.split(': ');
+      headers[key.toLowerCase()] = value;
+    });
 
-    if (supportsGzip) {
-      res.setHeader('Content-Encoding', 'gzip');
-      res.writeHead(200);
-      res.end(body);
-    } else {
-      res.setHeader('Content-Length', body.length);
-      res.writeHead(200);
-      res.end(body);
+    const contentLength = parseInt(headers['content-length'] || 0);
+    const body = requestData.slice(headersEndIndex + 4);
+
+    // Esperar a que llegue el body completo si aún no está
+    if (body.length < contentLength) return;
+
+    // Obtener User-Agent
+    const userAgent = headers['user-agent'] || '';
+
+    // Ruta "/"
+    if (method === 'GET' && requestPath === '/') {
+      socket.write('HTTP/1.1 200 OK\r\n\r\n');
+      socket.end();
+      return;
     }
 
-    return;
-  }
+    // Ruta "/echo/{str}"
+    if (method === 'GET' && requestPath.startsWith('/echo/')) {
+      const str = requestPath.slice(6);
+      const length = Buffer.byteLength(str);
 
-  // Ruta "/files/{filename}" GET
-  if (method === 'GET' && requestPath.startsWith('/files/')) {
-    const filename = requestPath.replace('/files/', '');
-    const filepath = path.join(baseDirectory, filename);
+      const acceptEncodingHeaders = headers['accept-encoding'];
 
-    fs.readFile(filepath, (err, content) => {
-      if (err) {
-        socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
-      } else {
-        socket.write(
+      // Analizar si cliente acepta gzip
+      const supportsGzip = acceptEncodingHeaders
+        .split(',')
+        .map((e) => e.trim())
+        .includes('gzip');
+
+      let response = '';
+
+      if (supportsGzip) {
+        response =
           `HTTP/1.1 200 OK\r\n` +
-            `Content-Type: application/octet-stream\r\n` +
-            `Content-Length: ${content.length}\r\n\r\n` +
-            content
-        );
-      }
-      socket.end();
-    });
-    return;
-  }
-
-  // Ruta "/files/{filename}" POST
-  if (method === 'POST' && requestPath.startsWith('/files/')) {
-    const filename = requestPath.replace('/files/', '');
-    const filepath = path.join(baseDirectory, filename);
-
-    fs.writeFile(filepath, body.slice(0, contentLength), (err) => {
-      if (err) {
-        socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+          `Content-Type: text/plain\r\n` +
+          `Content-Encoding: gzip\r\n` +
+          `Content-Length: ${length}\r\n\r\n` +
+          `${str}`;
       } else {
-        socket.write('HTTP/1.1 201 Created\r\n\r\n');
+        response =
+          `HTTP/1.1 200 OK\r\n` +
+          `Content-Type: text/plain\r\n` +
+          `Content-Length: ${length}\r\n\r\n` +
+          `${str}`;
       }
+
+      socket.write(response);
       socket.end();
-    });
-    return;
-  }
+      return;
+    }
 
-  // Cualquier otra ruta: 404
-  res.writeHead(404);
-  res.end();
+    // Ruta "/user-agent"
+    if (method === 'GET' && requestPath === '/user-agent') {
+      const length = Buffer.byteLength(userAgent);
+      const response =
+        `HTTP/1.1 200 OK\r\n` +
+        `Content-Type: text/plain\r\n` +
+        `Content-Length: ${length}\r\n\r\n` +
+        `${userAgent}`;
+
+      socket.write(response);
+      socket.end();
+      return;
+    }
+
+    // Ruta "/files/{filename}" GET
+    if (method === 'GET' && requestPath.startsWith('/files/')) {
+      const filename = requestPath.replace('/files/', '');
+      const filepath = path.join(baseDirectory, filename);
+
+      fs.readFile(filepath, (err, content) => {
+        if (err) {
+          socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+        } else {
+          socket.write(
+            `HTTP/1.1 200 OK\r\n` +
+              `Content-Type: application/octet-stream\r\n` +
+              `Content-Length: ${content.length}\r\n\r\n` +
+              content
+          );
+        }
+        socket.end();
+      });
+      return;
+    }
+
+    // Ruta "/files/{filename}" POST
+    if (method === 'POST' && requestPath.startsWith('/files/')) {
+      const filename = requestPath.replace('/files/', '');
+      const filepath = path.join(baseDirectory, filename);
+
+      fs.writeFile(filepath, body.slice(0, contentLength), (err) => {
+        if (err) {
+          socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+        } else {
+          socket.write('HTTP/1.1 201 Created\r\n\r\n');
+        }
+        socket.end();
+      });
+      return;
+    }
+
+    // Si no se reconoce la ruta
+    socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+    socket.end();
+  });
+
+  socket.on('close', () => {
+    socket.end();
+  });
 });
 
-server.listen(4221, () => {
-  console.log('Servidor corriendo en http://localhost:4221');
+server.listen(4221, 'localhost', () => {
+  console.log('Servidor escuchando en http://localhost:4221');
 });
+
+// correr el servidor: ./your_program.sh --directory /tmp/
