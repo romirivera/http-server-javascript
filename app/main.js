@@ -33,17 +33,9 @@ const server = http.createServer((req, res) => {
     res.setHeader('Content-Type', 'text/plain');
 
     if (supportsGzip) {
-      zlib.gzip(body, (err, compressed) => {
-        if (err) {
-          res.writeHead(500);
-          res.end('Internal Server Error');
-          return;
-        }
-        res.setHeader('Content-Encoding', 'gzip');
-        res.setHeader('Content-Length', compressed.length);
-        res.writeHead(200);
-        res.end(compressed);
-      });
+      res.setHeader('Content-Encoding', 'gzip');
+      res.setHeader('Content-Length', compressed.length);
+      res.writeHead(200);
     } else {
       res.setHeader('Content-Length', body.length);
       res.writeHead(200);
