@@ -14,7 +14,7 @@ const server = http.createServer((req, res) => {
     // Check if client accepts gzip
     const supportsGzip = acceptEncoding
       .split(',')
-      .map((e) => e.trim())
+      .map((e) => e.trim().toLowerCase()) // limpio espacios y normalizo
       .includes('gzip');
 
     res.setHeader('Content-Type', 'text/plain');
