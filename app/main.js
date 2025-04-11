@@ -2,7 +2,6 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-// Leer el directorio desde los argumentos
 const directoryIndex = process.argv.indexOf('--directory');
 const baseDirectory = directoryIndex !== -1 ? process.argv[directoryIndex + 1] : null;
 
@@ -13,7 +12,7 @@ const server = net.createServer((socket) => {
     requestData += chunk.toString();
 
     const headersEndIndex = requestData.indexOf('\r\n\r\n');
-    if (headersEndIndex === -1) return; // Aún no llegan todos los headers
+    if (headersEndIndex === -1) return;
 
     const headerPart = requestData.slice(0, headersEndIndex);
     const [requestLine, ...headerLines] = headerPart.split('\r\n');
@@ -28,36 +27,38 @@ const server = net.createServer((socket) => {
     const contentLength = parseInt(headers['content-length'] || 0);
     const body = requestData.slice(headersEndIndex + 4);
 
-    // Esperar a que llegue el body completo si aún no está
     if (body.length < contentLength) return;
 
-    // Obtener User-Agent
     const userAgent = headers['user-agent'] || '';
+    const acceptEncoding = headers['accept-encoding'] || '';
 
-    // Ruta "/"
+    // GET /
     if (method === 'GET' && requestPath === '/') {
       socket.write('HTTP/1.1 200 OK\r\n\r\n');
       socket.end();
       return;
     }
 
-    // Ruta "/echo/{str}"
+    // GET /echo/{str}
     if (method === 'GET' && requestPath.startsWith('/echo/')) {
       const str = requestPath.slice(6);
       const length = Buffer.byteLength(str);
 
-      const response =
-        `HTTP/1.1 200 OK\r\n` +
-        `Content-Type: text/plain\r\n` +
-        `Content-Length: ${length}\r\n\r\n` +
-        `${str}`;
+      let responseHeaders = `HTTP/1.1 200 OK\r\n` + `Content-Type: text/plain\r\n`;
 
-      socket.write(response);
+      // Si el cliente acepta gzip, incluir Content-Encoding
+      if (acceptEncoding.includes('gzip')) {
+        responseHeaders += `Content-Encoding: gzip\r\n`;
+      }
+
+      responseHeaders += `Content-Length: ${length}\r\n\r\n`;
+
+      socket.write(responseHeaders + str);
       socket.end();
       return;
     }
 
-    // Ruta "/user-agent"
+    // GET /user-agent
     if (method === 'GET' && requestPath === '/user-agent') {
       const length = Buffer.byteLength(userAgent);
       const response =
@@ -65,13 +66,12 @@ const server = net.createServer((socket) => {
         `Content-Type: text/plain\r\n` +
         `Content-Length: ${length}\r\n\r\n` +
         `${userAgent}`;
-
       socket.write(response);
       socket.end();
       return;
     }
 
-    // Ruta "/files/{filename}" GET
+    // GET /files/{filename}
     if (method === 'GET' && requestPath.startsWith('/files/')) {
       const filename = requestPath.replace('/files/', '');
       const filepath = path.join(baseDirectory, filename);
@@ -92,7 +92,7 @@ const server = net.createServer((socket) => {
       return;
     }
 
-    // Ruta "/files/{filename}" POST
+    // POST /files/{filename}
     if (method === 'POST' && requestPath.startsWith('/files/')) {
       const filename = requestPath.replace('/files/', '');
       const filepath = path.join(baseDirectory, filename);
@@ -108,7 +108,7 @@ const server = net.createServer((socket) => {
       return;
     }
 
-    // Si no se reconoce la ruta
+    // Si no se reconoce
     socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
     socket.end();
   });
@@ -121,5 +121,3 @@ const server = net.createServer((socket) => {
 server.listen(4221, 'localhost', () => {
   console.log('Servidor escuchando en http://localhost:4221');
 });
-
-// correr el servidor: ./your_program.sh --directory /tmp/
