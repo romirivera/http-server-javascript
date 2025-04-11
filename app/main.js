@@ -46,7 +46,7 @@ const server = net.createServer((socket) => {
       const str = requestPath.slice(6);
       const length = Buffer.byteLength(str);
 
-      const acceptEncodingHeaders = headers['accept-encoding'] || [];
+      const acceptEncodingHeaders = headers['accept-encoding'] || '';
 
       // Analizar si cliente acepta gzip
       const supportsGzip = acceptEncodingHeaders
