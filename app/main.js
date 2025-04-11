@@ -8,6 +8,11 @@ const directoryArgIndex = process.argv.indexOf('--directory');
 const baseDirectory =
   directoryArgIndex !== -1 ? process.argv[directoryArgIndex + 1] : '.';
 
+// Verifica si el directorio existe, y si no, crea uno nuevo.
+if (!fs.existsSync(baseDirectory)) {
+  fs.mkdirSync(baseDirectory, { recursive: true });
+}
+
 const server = http.createServer((req, res) => {
   const method = req.method;
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -51,15 +56,21 @@ const server = http.createServer((req, res) => {
   // Ruta: POST /files/{filename}
   if (method === 'POST' && path.startsWith('/files/')) {
     const filename = path.slice('/files/'.length);
-    const filePath = pathModule.join(baseDirectory, filename);
+    // Sanitiza el nombre del archivo para evitar posibles problemas de directorios maliciosos
+    const sanitizedFilename = pathModule.basename(filename);
+    const filePath = pathModule.join(baseDirectory, sanitizedFilename);
 
     let bodyChunks = [];
     req.on('data', (chunk) => {
+      console.log('Recibiendo datos...', chunk);
       bodyChunks.push(chunk);
     });
 
     req.on('end', () => {
       const body = Buffer.concat(bodyChunks);
+      console.log('Archivo completo recibido', body.length);
+
+      // Guarda el archivo recibido en el directorio base
       fs.writeFile(filePath, body, (err) => {
         if (err) {
           res.writeHead(500);
