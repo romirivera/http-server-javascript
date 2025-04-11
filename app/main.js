@@ -34,7 +34,6 @@ const server = http.createServer((req, res) => {
 
     if (supportsGzip) {
       res.setHeader('Content-Encoding', 'gzip');
-      res.setHeader('Content-Length', compressed.length);
       res.writeHead(200);
     } else {
       res.setHeader('Content-Length', body.length);
