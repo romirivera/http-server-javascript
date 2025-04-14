@@ -12,10 +12,9 @@ const server = net.createServer((socket) => {
   socket.on('data', (chunk) => {
     buffer += chunk.toString();
 
-    // Procesar múltiples solicitudes si vienen juntas
     while (true) {
       const headersEndIndex = buffer.indexOf('\r\n\r\n');
-      if (headersEndIndex === -1) break; // no hay headers completos aún
+      if (headersEndIndex === -1) break;
 
       const headerPart = buffer.slice(0, headersEndIndex);
       const [requestLine, ...headerLines] = headerPart.split('\r\n');
@@ -30,18 +29,36 @@ const server = net.createServer((socket) => {
       const contentLength = parseInt(headers['content-length'] || 0);
       const totalLength = headersEndIndex + 4 + contentLength;
 
-      if (buffer.length < totalLength) break; // aún no llega todo el body
+      if (buffer.length < totalLength) break;
 
       const body = buffer.slice(headersEndIndex + 4, totalLength);
-      buffer = buffer.slice(totalLength); // eliminar solicitud procesada del buffer
+      buffer = buffer.slice(totalLength);
 
       const userAgent = headers['user-agent'] || '';
       const acceptEncoding = headers['accept-encoding'] || '';
-      const connectionHeader = headers['connection'] || '';
+      const wantsClose = (headers['connection'] || '').toLowerCase() === 'close';
+
+      const writeResponse = (statusLine, headersObj, body) => {
+        let headerStr = `${statusLine}\r\n`;
+        for (const [key, value] of Object.entries(headersObj)) {
+          headerStr += `${key}: ${value}\r\n`;
+        }
+
+        if (wantsClose) {
+          headerStr += `Connection: close\r\n`;
+        }
+
+        socket.write(headerStr + '\r\n');
+        if (body) socket.write(body);
+
+        if (wantsClose) {
+          socket.end(); // Cierra la conexión solo si se pidió
+        }
+      };
 
       // Ruta "/"
       if (method === 'GET' && requestPath === '/') {
-        socket.write('HTTP/1.1 200 OK\r\n\r\n');
+        writeResponse('HTTP/1.1 200 OK', {}, null);
         continue;
       }
 
@@ -55,19 +72,23 @@ const server = net.createServer((socket) => {
 
         if (supportsGzip) {
           const compressed = zlib.gzipSync(Buffer.from(str));
-          socket.write(
-            `HTTP/1.1 200 OK\r\n` +
-              `Content-Type: text/plain\r\n` +
-              `Content-Encoding: gzip\r\n` +
-              `Content-Length: ${compressed.length}\r\n\r\n`
+          writeResponse(
+            'HTTP/1.1 200 OK',
+            {
+              'Content-Type': 'text/plain',
+              'Content-Encoding': 'gzip',
+              'Content-Length': compressed.length,
+            },
+            compressed
           );
-          socket.write(compressed);
         } else {
-          socket.write(
-            `HTTP/1.1 200 OK\r\n` +
-              `Content-Type: text/plain\r\n` +
-              `Content-Length: ${Buffer.byteLength(str)}\r\n\r\n` +
-              str
+          writeResponse(
+            'HTTP/1.1 200 OK',
+            {
+              'Content-Type': 'text/plain',
+              'Content-Length': Buffer.byteLength(str),
+            },
+            str
           );
         }
 
@@ -76,11 +97,13 @@ const server = net.createServer((socket) => {
 
       // Ruta "/user-agent"
       if (method === 'GET' && requestPath === '/user-agent') {
-        socket.write(
-          `HTTP/1.1 200 OK\r\n` +
-            `Content-Type: text/plain\r\n` +
-            `Content-Length: ${Buffer.byteLength(userAgent)}\r\n\r\n` +
-            userAgent
+        writeResponse(
+          'HTTP/1.1 200 OK',
+          {
+            'Content-Type': 'text/plain',
+            'Content-Length': Buffer.byteLength(userAgent),
+          },
+          userAgent
         );
         continue;
       }
@@ -92,15 +115,18 @@ const server = net.createServer((socket) => {
 
         try {
           const content = fs.readFileSync(filepath);
-          socket.write(
-            `HTTP/1.1 200 OK\r\n` +
-              `Content-Type: application/octet-stream\r\n` +
-              `Content-Length: ${content.length}\r\n\r\n`
+          writeResponse(
+            'HTTP/1.1 200 OK',
+            {
+              'Content-Type': 'application/octet-stream',
+              'Content-Length': content.length,
+            },
+            content
           );
-          socket.write(content);
         } catch {
-          socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+          writeResponse('HTTP/1.1 404 Not Found', {}, null);
         }
+
         continue;
       }
 
@@ -111,20 +137,20 @@ const server = net.createServer((socket) => {
 
         fs.writeFile(filepath, body, (err) => {
           if (err) {
-            socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+            writeResponse('HTTP/1.1 500 Internal Server Error', {}, null);
           } else {
-            socket.write('HTTP/1.1 201 Created\r\n\r\n');
+            writeResponse('HTTP/1.1 201 Created', {}, null);
           }
         });
+
         continue;
       }
 
       // Ruta no encontrada
-      socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+      writeResponse('HTTP/1.1 404 Not Found', {}, null);
     }
   });
 
-  // 🔧 Cierra solo si el cliente explícitamente lo pide
   socket.on('end', () => {
     socket.end();
   });
